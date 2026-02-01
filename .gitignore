@@ -1,0 +1,28 @@
+# OpenClaw workspace
+/dist/
+/temp/
+
+# Node
+**/node_modules/
+**/.env
+**/.env.*
+
+# Builds
+**/dist/
+**/.vite/
+
+# Logs
+*.log
+
+# OpenClaw agent/persona files (not part of the project repo)
+AGENTS.md
+BOOTSTRAP.md
+HEARTBEAT.md
+IDENTITY.md
+SOUL.md
+TOOLS.md
+USER.md
+
+# Legacy / local projects
+/tasks-qt/
+/tasks-tui/
