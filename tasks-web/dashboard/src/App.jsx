@@ -1,8 +1,25 @@
 import { useEffect, useMemo, useState } from 'react'
-import './App.css'
+import {
+  ActionIcon,
+  AppShell,
+  Badge,
+  Button,
+  Card,
+  Container,
+  Divider,
+  Group,
+  Modal,
+  Stack,
+  Table,
+  Text,
+  TextInput,
+  Title,
+  Tooltip,
+} from '@mantine/core'
+import { IconPlugConnected, IconPlugConnectedX, IconSettings, IconShieldLock } from '@tabler/icons-react'
 
-// IMPORTANT: Do NOT bake secrets into the static site.
-// For GitHub Pages we keep API_BASE + TOKEN as runtime settings stored in localStorage.
+// Notion-ish dark: clean, quiet, high readability.
+// Security: avoid accidental public exposure. Sensitive fields are hidden by default.
 
 const LS_API_BASE = 'openclaw_dashboard_api_base'
 const LS_TOKEN = 'openclaw_dashboard_token'
@@ -17,42 +34,8 @@ function fmtAgeMs(ms) {
   return `${s}s`
 }
 
-function Card({ title, children }) {
-  return (
-    <section style={{ border: '1px solid #ddd', borderRadius: 10, padding: 12, background: '#fff' }}>
-      <div style={{ fontWeight: 700, marginBottom: 8 }}>{title}</div>
-      {children}
-    </section>
-  )
-}
-
-function KV({ k, v }) {
-  return (
-    <div style={{ display: 'flex', gap: 10, lineHeight: 1.6 }}>
-      <div style={{ width: 140, opacity: 0.7 }}>{k}</div>
-      <div style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', overflowWrap: 'anywhere' }}>{v}</div>
-    </div>
-  )
-}
-
-function Settings({ apiBase, token, setApiBase, setToken, onSave }) {
-  return (
-    <div style={{ border: '1px solid #ddd', borderRadius: 10, padding: 12, background: '#fff', marginBottom: 12 }}>
-      <div style={{ fontWeight: 800, marginBottom: 6 }}>Connect</div>
-      <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 10 }}>
-        Configure at runtime (safe for GitHub Pages). Values are stored in your browser localStorage.
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr', gap: 10, alignItems: 'center' }}>
-        <div style={{ opacity: 0.7 }}>API base</div>
-        <input value={apiBase} onChange={(e) => setApiBase(e.target.value)} placeholder="http://100.x.y.z:8787" style={{ padding: 8, borderRadius: 8, border: '1px solid #ccc' }} />
-        <div style={{ opacity: 0.7 }}>Token</div>
-        <input value={token} onChange={(e) => setToken(e.target.value)} placeholder="dashboard token" style={{ padding: 8, borderRadius: 8, border: '1px solid #ccc' }} />
-      </div>
-      <div style={{ marginTop: 10 }}>
-        <button onClick={onSave} style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #333', background: '#111', color: '#fff' }}>Save</button>
-      </div>
-    </div>
-  )
+function sanitizeBase(v) {
+  return (v || '').trim().replace(/\/$/, '')
 }
 
 export default function App() {
@@ -62,24 +45,24 @@ export default function App() {
   const [state, setState] = useState(null)
   const [events, setEvents] = useState([])
   const [error, setError] = useState(null)
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   const ready = useMemo(() => Boolean(apiBase) && Boolean(token), [apiBase, token])
 
   function saveSettings() {
-    localStorage.setItem(LS_API_BASE, apiBase.trim())
+    localStorage.setItem(LS_API_BASE, sanitizeBase(apiBase))
     localStorage.setItem(LS_TOKEN, token.trim())
     setError(null)
-    // Force a reload to reset EventSource cleanly.
+    setSettingsOpen(false)
     window.location.reload()
   }
 
   useEffect(() => {
     if (!ready) return
 
-    const base = apiBase.replace(/\/$/, '')
-    const t = token
+    const base = sanitizeBase(apiBase)
+    const t = token.trim()
 
-    // Initial snapshot (one-time; not polling)
     fetch(`${base}/state?token=${encodeURIComponent(t)}`)
       .then(async (r) => {
         if (!r.ok) throw new Error(`GET /state failed: ${r.status}`)
@@ -88,7 +71,6 @@ export default function App() {
       .then(setState)
       .catch((e) => setError(String(e.message || e)))
 
-    // SSE stream (event-driven)
     const url = new URL(`${base}/events`)
     url.searchParams.set('token', t)
 
@@ -117,161 +99,195 @@ export default function App() {
 
   const snapshot = state?.snapshot
   const health = snapshot?.health
-  const presence = snapshot?.presence || []
 
-  // Channels (from snapshot.health)
   const channels = health?.channels || {}
   const channelOrder = health?.channelOrder || Object.keys(channels)
-
-  // Sessions (from snapshot.health)
   const sessions = health?.sessions?.recent || []
-
-  // Agents (from snapshot.health)
   const agents = health?.agents || []
 
+  const connected = Boolean(state?.connected)
+  const redacted = state?.redacted !== false
+
+  const statusDot = connected ? (
+    <Badge leftSection={<IconPlugConnected size={14} />} color="teal" variant="light">Connected</Badge>
+  ) : (
+    <Badge leftSection={<IconPlugConnectedX size={14} />} color="red" variant="light">Disconnected</Badge>
+  )
+
   return (
-    <div style={{ maxWidth: 1200, margin: '0 auto', padding: 16, fontFamily: 'ui-sans-serif, system-ui', background: '#f6f7fb', minHeight: '100vh' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, marginBottom: 12 }}>
-        <div>
-          <div style={{ fontSize: 20, fontWeight: 800 }}>OpenClaw Web Dashboard</div>
-          <div style={{ opacity: 0.75 }}>Event-driven via SSE. No browser polling.</div>
-        </div>
-        <div style={{ fontSize: 12, opacity: 0.7, textAlign: 'right' }}>
-          <div>API: {apiBase || '(unset)'}</div>
-          <div>stateVersion: {state?.stateVersion ? JSON.stringify(state.stateVersion) : '(n/a)'}</div>
-        </div>
-      </div>
+    <AppShell header={{ height: 56 }} padding="md">
+      <AppShell.Header>
+        <Container size="lg" h="100%">
+          <Group justify="space-between" h="100%">
+            <Group gap="sm">
+              <Title order={3}>OpenClaw</Title>
+              <Text c="dimmed" size="sm">Dashboard</Text>
+              {statusDot}
+              {redacted && (
+                <Tooltip label="Sensitive fields are redacted by default." withArrow>
+                  <Badge leftSection={<IconShieldLock size={14} />} color="gray" variant="light">Redacted</Badge>
+                </Tooltip>
+              )}
+            </Group>
 
-      <Settings apiBase={apiBase} token={token} setApiBase={setApiBase} setToken={setToken} onSave={saveSettings} />
+            <Group gap="sm">
+              <Text c="dimmed" size="xs">API: {sanitizeBase(apiBase) || '(unset)'}</Text>
+              <ActionIcon variant="subtle" onClick={() => setSettingsOpen(true)} aria-label="settings">
+                <IconSettings size={18} />
+              </ActionIcon>
+            </Group>
+          </Group>
+        </Container>
+      </AppShell.Header>
 
-      {error && (
-        <div style={{ background: '#2a0f14', border: '1px solid #6b1a2b', color: '#fff', padding: 12, borderRadius: 10, marginBottom: 12 }}>
-          <b>Error:</b> {error}
-        </div>
-      )}
+      <AppShell.Main>
+        <Container size="lg">
+          <Modal opened={settingsOpen || !ready} onClose={() => setSettingsOpen(false)} title="Connect" centered>
+            <Stack gap="sm">
+              <Text c="dimmed" size="sm">
+                Stored in your browser only. The site is public, so do not paste anything you don't want to leak.
+              </Text>
+              <TextInput
+                label="API base"
+                placeholder="http://100.122.77.97:8787"
+                value={apiBase}
+                onChange={(e) => setApiBase(e.target.value)}
+              />
+              <TextInput
+                label="Token"
+                placeholder="dashboard token"
+                value={token}
+                onChange={(e) => setToken(e.target.value)}
+              />
+              <Group justify="flex-end">
+                <Button onClick={saveSettings}>Save</Button>
+              </Group>
+            </Stack>
+          </Modal>
 
-      {!ready && (
-        <div style={{ opacity: 0.7, marginBottom: 12 }}>
-          Add API base + token above, then click Save.
-        </div>
-      )}
+          {error && (
+            <Card withBorder mt="md" bg="dark.8">
+              <Text c="red">{error}</Text>
+            </Card>
+          )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: 12 }}>
-        <div style={{ gridColumn: 'span 6' }}>
-          <Card title="Service">
-            <KV k="connected" v={String(state?.connected ?? '(loading)')} />
-            <KV k="connectedAt" v={state?.connectedAt || ''} />
-            <KV k="lastEventAt" v={state?.lastEventAt || ''} />
-            <KV k="seq" v={state?.seq ?? ''} />
-          </Card>
-        </div>
+          <Group mt="md" grow align="stretch">
+            <Card withBorder>
+              <Text c="dimmed" size="xs">Gateway</Text>
+              <Title order={4}>{connected ? 'Up' : 'Down'}</Title>
+              <Text c="dimmed" size="sm">lastEvent: {state?.lastEventAt || '—'}</Text>
+            </Card>
+            <Card withBorder>
+              <Text c="dimmed" size="xs">Channels</Text>
+              <Title order={4}>{channelOrder.length}</Title>
+              <Text c="dimmed" size="sm">configured: {Object.keys(channels).length}</Text>
+            </Card>
+            <Card withBorder>
+              <Text c="dimmed" size="xs">Sessions</Text>
+              <Title order={4}>{health?.sessions?.count ?? sessions.length ?? 0}</Title>
+              <Text c="dimmed" size="sm">recent: {sessions.length}</Text>
+            </Card>
+            <Card withBorder>
+              <Text c="dimmed" size="xs">Agents</Text>
+              <Title order={4}>{agents.length}</Title>
+              <Text c="dimmed" size="sm">heartbeat: {health?.heartbeatSeconds ? `${health.heartbeatSeconds}s` : '—'}</Text>
+            </Card>
+          </Group>
 
-        <div style={{ gridColumn: 'span 6' }}>
-          <Card title="Gateway snapshot">
-            <KV k="uptimeMs" v={snapshot?.uptimeMs ?? ''} />
-            <KV k="configPath" v={snapshot?.configPath || ''} />
-            <KV k="stateDir" v={snapshot?.stateDir || ''} />
-            <KV k="heartbeat" v={health?.heartbeatSeconds ? `${health.heartbeatSeconds}s` : ''} />
-          </Card>
-        </div>
+          <Group mt="md" align="stretch" grow>
+            <Card withBorder style={{ flex: 2 }}>
+              <Group justify="space-between" mb="xs">
+                <Title order={5}>Channels</Title>
+                <Text c="dimmed" size="xs">Real-time (SSE)</Text>
+              </Group>
+              <Divider mb="sm" />
+              <Table striped highlightOnHover withTableBorder withColumnBorders>
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th>Channel</Table.Th>
+                    <Table.Th>Status</Table.Th>
+                    <Table.Th>Details</Table.Th>
+                  </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
+                  {channelOrder.map((k) => {
+                    const ch = channels[k]
+                    if (!ch) return null
+                    const status = [
+                      ch.linked ? ['linked', 'teal'] : ['not linked', 'gray'],
+                      ch.running ? ['running', 'teal'] : ['stopped', 'yellow'],
+                      ch.connected ? ['connected', 'teal'] : ['disconnected', 'red'],
+                    ]
+                    return (
+                      <Table.Tr key={k}>
+                        <Table.Td>
+                          <Text fw={600}>{k}</Text>
+                        </Table.Td>
+                        <Table.Td>
+                          <Group gap={6}>
+                            {status.map(([label, color]) => (
+                              <Badge key={label} color={color} variant="light">{label}</Badge>
+                            ))}
+                          </Group>
+                        </Table.Td>
+                        <Table.Td>
+                          <Text size="sm" c="dimmed">
+                            {ch.authAgeMs != null ? `authAge ${fmtAgeMs(ch.authAgeMs)}` : ''}
+                            {ch.lastError ? ` · error` : ''}
+                          </Text>
+                        </Table.Td>
+                      </Table.Tr>
+                    )
+                  })}
+                </Table.Tbody>
+              </Table>
+            </Card>
 
-        <div style={{ gridColumn: 'span 6' }}>
-          <Card title="Channels">
-            {channelOrder.length === 0 ? (
-              <div style={{ opacity: 0.7 }}>No channel data yet…</div>
-            ) : (
-              channelOrder.map((key) => {
-                const ch = channels[key]
-                if (!ch) return null
-                const linked = ch.linked ? 'linked' : 'not-linked'
-                const running = ch.running ? 'running' : 'stopped'
-                const connected = ch.connected ? 'connected' : 'disconnected'
-                const self = ch?.self?.e164 || ''
-                return (
-                  <div key={key} style={{ padding: '8px 0', borderBottom: '1px solid #eee' }}>
-                    <div style={{ fontWeight: 700 }}>{key}{self ? ` (${self})` : ''}</div>
-                    <div style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', fontSize: 12, opacity: 0.85 }}>
-                      {linked} · {running} · {connected} {ch.authAgeMs != null ? `· authAge ${fmtAgeMs(ch.authAgeMs)}` : ''}
-                      {ch.lastError ? `\nerror: ${ch.lastError}` : ''}
-                    </div>
-                  </div>
-                )
-              })
-            )}
-          </Card>
-        </div>
+            <Card withBorder style={{ flex: 1 }}>
+              <Title order={5} mb="xs">Sessions (recent)</Title>
+              <Divider mb="sm" />
+              <Stack gap={8}>
+                {sessions.length === 0 ? (
+                  <Text c="dimmed" size="sm">No sessions yet…</Text>
+                ) : (
+                  sessions.map((s, i) => (
+                    <Card key={i} withBorder radius="md" p="sm">
+                      <Text fw={600} size="sm" style={{ overflowWrap: 'anywhere' }}>{s.key || String(s)}</Text>
+                      <Text c="dimmed" size="xs">age: {fmtAgeMs(s.age)}</Text>
+                    </Card>
+                  ))
+                )}
+              </Stack>
+            </Card>
+          </Group>
 
-        <div style={{ gridColumn: 'span 6' }}>
-          <Card title="Agents">
-            {agents.length === 0 ? (
-              <div style={{ opacity: 0.7 }}>No agent data yet…</div>
-            ) : (
-              agents.map((a) => (
-                <div key={a.agentId} style={{ padding: '8px 0', borderBottom: '1px solid #eee' }}>
-                  <div style={{ fontWeight: 700 }}>{a.agentId}{a.isDefault ? ' (default)' : ''}</div>
-                  <div style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', fontSize: 12, opacity: 0.85 }}>
-                    sessions: {a?.sessions?.count ?? '?'} · heartbeat: {a?.heartbeat?.enabled ? 'on' : 'off'} {a?.heartbeat?.every || ''}
-                  </div>
-                </div>
-              ))
-            )}
-          </Card>
-        </div>
-
-        <div style={{ gridColumn: 'span 8' }}>
-          <Card title="Sessions (recent)">
-            {sessions.length === 0 ? (
-              <div style={{ opacity: 0.7 }}>No sessions yet…</div>
-            ) : (
-              <div style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', fontSize: 12 }}>
-                {sessions.map((s, i) => (
-                  <div key={i} style={{ padding: '6px 0', borderBottom: '1px solid #eee' }}>
-                    <div style={{ fontWeight: 700 }}>{s.key || String(s)}</div>
-                    {s.updatedAt ? (
-                      <div style={{ opacity: 0.75 }}>updatedAt: {s.updatedAt} · age: {fmtAgeMs(s.age)}</div>
-                    ) : null}
-                  </div>
-                ))}
-              </div>
-            )}
-          </Card>
-        </div>
-
-        <div style={{ gridColumn: 'span 4' }}>
-          <Card title="Presence">
-            <div style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', fontSize: 12 }}>
-              {presence.length === 0 ? (
-                <div style={{ opacity: 0.7 }}>No presence yet…</div>
+          <Card withBorder mt="md">
+            <Group justify="space-between" mb="xs">
+              <Title order={5}>Live events</Title>
+              <Text c="dimmed" size="xs">Latest {events.length}/200</Text>
+            </Group>
+            <Divider mb="sm" />
+            <Stack gap={6}>
+              {events.length === 0 ? (
+                <Text c="dimmed" size="sm">Waiting for events…</Text>
               ) : (
-                presence.map((p, i) => (
-                  <div key={i} style={{ padding: '6px 0', borderBottom: '1px solid #eee' }}>
-                    <div style={{ fontWeight: 700 }}>{p.host || '(host?)'}</div>
-                    <div style={{ opacity: 0.75 }}>{p.mode || ''} {p.ip ? `· ${p.ip}` : ''}</div>
-                  </div>
+                events.slice(0, 30).map((e, i) => (
+                  <Card key={i} withBorder radius="md" p="sm" bg="dark.8">
+                    <Text size="xs" c="dimmed">{e.event || e.type || 'event'}</Text>
+                    <Text size="xs" style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' }}>
+                      {JSON.stringify(e).slice(0, 500)}{JSON.stringify(e).length > 500 ? '…' : ''}
+                    </Text>
+                  </Card>
                 ))
               )}
-            </div>
-          </Card>
-        </div>
+            </Stack>
 
-        <div style={{ gridColumn: 'span 12' }}>
-          <Card title="Live events (latest 200)">
-            {events.length === 0 ? (
-              <div style={{ opacity: 0.7 }}>Waiting for events…</div>
-            ) : (
-              <div style={{ maxHeight: 360, overflow: 'auto', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', fontSize: 12 }}>
-                {events.map((e, i) => (
-                  <pre key={i} style={{ margin: 0, padding: '8px 0', borderBottom: '1px solid #eee' }}>{JSON.stringify(e, null, 2)}</pre>
-                ))}
-              </div>
-            )}
+            <Text c="dimmed" size="xs" mt="sm">
+              Security: the backend redacts sensitive snapshot fields by default. Full details require local/tailnet + ?full=1.
+            </Text>
           </Card>
-        </div>
-
-        <div style={{ gridColumn: 'span 12', fontSize: 12, opacity: 0.7, paddingTop: 4 }}>
-          Tip: For GitHub Pages, keep this site private-by-network: use Tailscale on the viewing device and set API base to your desktop tailnet IP (e.g. http://100.122.77.97:8787).
-        </div>
-      </div>
-    </div>
+        </Container>
+      </AppShell.Main>
+    </AppShell>
   )
 }
